@@ -1,0 +1,4 @@
+baseURL = 'https://chachustudios.com/'
+languageCode = 'en-us'
+title = 'ChaChu Studios'
+theme = 'PaperMod'
