@@ -2,3 +2,7 @@ baseURL = 'https://chachustudios.com/'
 languageCode = 'en-us'
 title = 'ChaChu Studios'
 theme = 'PaperMod'
+
+[params]
+  customCSS = ['css/tts-player.css']
+  customJS = ['js/tts-player.js']

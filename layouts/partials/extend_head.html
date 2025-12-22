@@ -1,3 +1,16 @@
 <!-- TTS Player Assets -->
 <link rel="stylesheet" href="{{ "css/tts-player.css" | relURL }}">
-<script src="{{ "js/tts-player.js" | relURL }}" defer></script>
+<script>
+  // Ensure TTS script loads even if PaperMod's extend_head isn't working
+  (function() {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '{{ "css/tts-player.css" | relURL }}';
+    document.head.appendChild(link);
+    
+    const script = document.createElement('script');
+    script.src = '{{ "js/tts-player.js" | relURL }}';
+    script.defer = true;
+    document.head.appendChild(script);
+  })();
+</script>

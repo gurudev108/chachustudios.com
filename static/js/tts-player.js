@@ -73,16 +73,32 @@ class TTSPlayer {
 
   injectTTSPlayer() {
     // Find post header - try multiple selectors for PaperMod
-    const postHeader = document.querySelector('.post-header') ||
-                       document.querySelector('article header') ||
-                       document.querySelector('.entry-header') ||
-                       document.querySelector('article .post-meta')?.parentElement;
+    let postHeader = document.querySelector('.post-header') ||
+                     document.querySelector('article header') ||
+                     document.querySelector('.entry-header');
+    
+    // If not found, try to find it via post-meta
+    if (!postHeader) {
+      const postMeta = document.querySelector('article .post-meta');
+      if (postMeta) {
+        postHeader = postMeta.closest('header') || postMeta.parentElement;
+      }
+    }
 
     if (!postHeader) {
-      console.warn('Post header not found, injecting after title');
-      // Fallback: inject after first h1
-      const title = document.querySelector('article h1, .post-title');
-      if (title && title.parentElement) {
+      console.warn('Post header not found, trying alternative locations');
+      // Fallback: inject after post-meta or title
+      const postMeta = document.querySelector('.post-meta');
+      const title = document.querySelector('article h1, .post-title, h1.post-title');
+      
+      if (postMeta && postMeta.parentElement) {
+        const container = document.createElement('div');
+        container.className = 'tts-player-container';
+        container.id = 'tts-player-container';
+        container.innerHTML = this.getTTSPlayerHTML();
+        postMeta.parentElement.insertBefore(container, postMeta.nextSibling);
+        return;
+      } else if (title && title.parentElement) {
         const container = document.createElement('div');
         container.className = 'tts-player-container';
         container.id = 'tts-player-container';
@@ -90,6 +106,7 @@ class TTSPlayer {
         title.parentElement.insertBefore(container, title.nextSibling);
         return;
       }
+      console.error('Could not find suitable location for TTS player');
       return;
     }
 
