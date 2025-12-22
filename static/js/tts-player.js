@@ -23,19 +23,30 @@ class TTSPlayer {
     // Check if SpeechSynthesis is supported
     if (!('speechSynthesis' in window)) {
       console.warn('Text-to-speech not supported in this browser');
-      const container = document.getElementById('tts-player-container');
-      if (container) container.style.display = 'none';
       return;
     }
+
+    // Find post content - try multiple selectors for PaperMod
+    this.postContent = document.querySelector('.post-content') || 
+                       document.querySelector('article .entry-content') ||
+                       document.querySelector('article .content') ||
+                       document.querySelector('main article');
+
+    if (!this.postContent) {
+      console.warn('Post content not found');
+      return;
+    }
+
+    // Inject TTS player into post header
+    this.injectTTSPlayer();
 
     // Get DOM elements
     this.playBtn = document.getElementById('tts-play-btn');
     this.controls = document.getElementById('tts-controls');
     this.speedBtn = document.getElementById('tts-speed-btn');
     this.progressBar = document.getElementById('tts-progress-bar');
-    this.postContent = document.getElementById('post-content');
 
-    if (!this.playBtn || !this.postContent) return;
+    if (!this.playBtn) return;
 
     // Extract text elements from post content
     this.extractTextElements();
@@ -60,16 +71,76 @@ class TTSPlayer {
     });
   }
 
+  injectTTSPlayer() {
+    // Find post header - try multiple selectors for PaperMod
+    const postHeader = document.querySelector('.post-header') ||
+                       document.querySelector('article header') ||
+                       document.querySelector('.entry-header') ||
+                       document.querySelector('article .post-meta')?.parentElement;
+
+    if (!postHeader) {
+      console.warn('Post header not found, injecting after title');
+      // Fallback: inject after first h1
+      const title = document.querySelector('article h1, .post-title');
+      if (title && title.parentElement) {
+        const container = document.createElement('div');
+        container.className = 'tts-player-container';
+        container.id = 'tts-player-container';
+        container.innerHTML = this.getTTSPlayerHTML();
+        title.parentElement.insertBefore(container, title.nextSibling);
+        return;
+      }
+      return;
+    }
+
+    // Insert TTS player after post meta
+    const container = document.createElement('div');
+    container.className = 'tts-player-container';
+    container.id = 'tts-player-container';
+    container.innerHTML = this.getTTSPlayerHTML();
+    
+    // Insert after post-meta or at end of header
+    const postMeta = postHeader.querySelector('.post-meta');
+    if (postMeta && postMeta.nextSibling) {
+      postHeader.insertBefore(container, postMeta.nextSibling);
+    } else {
+      postHeader.appendChild(container);
+    }
+  }
+
+  getTTSPlayerHTML() {
+    return `
+      <button class="tts-play-btn" id="tts-play-btn" aria-label="Play audio" title="Listen to this post">
+        <svg class="tts-icon-play" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <svg class="tts-icon-pause" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+          <rect x="6" y="4" width="4" height="16"></rect>
+          <rect x="14" y="4" width="4" height="16"></rect>
+        </svg>
+      </button>
+      <div class="tts-controls" id="tts-controls" style="display: none;">
+        <button class="tts-speed-btn" id="tts-speed-btn" title="Reading speed">1x</button>
+        <div class="tts-progress-container">
+          <div class="tts-progress-bar" id="tts-progress-bar"></div>
+        </div>
+      </div>
+    `;
+  }
+
   extractTextElements() {
     if (!this.postContent) return;
 
     // Get all text-containing elements (p, h1-h6, li, etc.)
+    // Exclude elements that are likely in header/footer
     const selectors = 'p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th';
     const elements = this.postContent.querySelectorAll(selectors);
     
     this.textElements = Array.from(elements).filter(el => {
       const text = el.textContent.trim();
-      return text.length > 0 && !el.closest('nav, header, footer, .tts-player-container');
+      // Exclude if in navigation, header, footer, or TTS container
+      const isExcluded = el.closest('nav, header, footer, .tts-player-container, .post-header, .post-footer');
+      return text.length > 0 && !isExcluded && el.offsetParent !== null; // offsetParent checks visibility
     });
 
     // Add data attributes for highlighting
