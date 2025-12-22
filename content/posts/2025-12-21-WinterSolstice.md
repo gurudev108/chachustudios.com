@@ -1,4 +1,9 @@
-# Winter Solstice — December 21  
++++
+date = '2025-12-21T00:00:00-08:00'
+draft = false
+title = 'Winter Solstice — December 21'
++++
+
 ## When Yin Meets Yang and the Light Begins Its Return
 
 In the sacred rhythm of the cosmos, **December 21 marks the Winter Solstice**, the longest night and the quiet turning point of the year. From this moment onward, the days slowly begin to grow longer. Light, though subtle, starts its return.
