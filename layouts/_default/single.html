@@ -24,24 +24,7 @@
     </div>
     {{- end }}
     
-    <!-- TTS Player Button -->
-    <div class="tts-player-container" id="tts-player-container">
-      <button class="tts-play-btn" id="tts-play-btn" aria-label="Play audio" title="Listen to this post">
-        <svg class="tts-icon-play" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        <svg class="tts-icon-pause" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
-          <rect x="6" y="4" width="4" height="16"></rect>
-          <rect x="14" y="4" width="4" height="16"></rect>
-        </svg>
-      </button>
-      <div class="tts-controls" id="tts-controls" style="display: none;">
-        <button class="tts-speed-btn" id="tts-speed-btn" title="Reading speed">1x</button>
-        <div class="tts-progress-container">
-          <div class="tts-progress-bar" id="tts-progress-bar"></div>
-        </div>
-      </div>
-    </div>
+    {{- partial "tts_player.html" . }}
   </header>
   {{- $isHidden := .Params.cover.hidden | default site.Params.cover.hiddenInSingle | default site.Params.cover.hidden }}
   {{- partial "cover.html" (dict "cxt" . "IsHome" false "isHidden" $isHidden) }}
