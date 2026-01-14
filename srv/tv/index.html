@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Live Stream</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    body { background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0; }
+    h1 { color:#fff; }
+    video { max-width:90%; max-height:80%; }
+  </style>
+</head>
+<body>
+  <h1>Live Stream</h1>
+  <video id="video" controls autoplay muted></video>
+  <script>
+    const video = document.getElementById('video');
+    const streamURL = '/live/livestream.m3u8';
+    const statusDiv = document.createElement('div');
+    statusDiv.style.color = 'white';
+    statusDiv.style.marginTop = '20px';
+    statusDiv.style.fontFamily = 'monospace';
+    document.body.appendChild(statusDiv);
+    
+    function updateStatus(msg) {
+      statusDiv.textContent = new Date().toLocaleTimeString() + ': ' + msg;
+      console.log(msg);
+    }
+    
+    updateStatus('Initializing HLS player...');
+    
+    // Check if stream URL is accessible
+    fetch(streamURL)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.text();
+      })
+      .then(m3u8Content => {
+        updateStatus('✓ M3U8 file accessible');
+        updateStatus('M3U8 content preview: ' + m3u8Content.substring(0, 200));
+        
+        if(Hls.isSupported()) {
+          updateStatus('Using HLS.js player...');
+          const hls = new Hls({
+            debug: true,
+            enableWorker: true,
+            lowLatencyMode: true
+          });
+          
+          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+            updateStatus('✓ Media attached');
+          });
+          
+          hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+            updateStatus('✓ Manifest parsed, ' + data.levels.length + ' quality levels');
+            video.play().catch(e => {
+              updateStatus('⚠ Play error: ' + e.message);
+            });
+          });
+          
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal) {
+              updateStatus('✗ Fatal error: ' + data.type + ' - ' + data.details);
+              switch(data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  updateStatus('Network error - trying to recover...');
+                  hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  updateStatus('Media error - trying to recover...');
+                  hls.recoverMediaError();
+                  break;
+                default:
+                  updateStatus('Unrecoverable error');
+                  hls.destroy();
+                  break;
+              }
+            } else {
+              updateStatus('⚠ Non-fatal error: ' + data.type + ' - ' + data.details);
+            }
+          });
+          
+          hls.loadSource(streamURL);
+          hls.attachMedia(video);
+        } else if(video.canPlayType('application/vnd.apple.mpegurl')) {
+          updateStatus('Using native HLS support...');
+          video.src = streamURL;
+          video.addEventListener('loadedmetadata', () => {
+            updateStatus('✓ Metadata loaded');
+          });
+          video.addEventListener('error', (e) => {
+            updateStatus('✗ Video error: ' + (e.message || 'Unknown error'));
+          });
+        } else {
+          updateStatus('✗ Browser does not support HLS');
+        }
+      })
+      .catch(error => {
+        updateStatus('✗ Cannot access M3U8: ' + error.message);
+        updateStatus('Make sure:');
+        updateStatus('1. RTMP server is running');
+        updateStatus('2. Web server is serving /live/ directory');
+        updateStatus('3. FFmpeg is streaming to rtmp://localhost/live/livestream');
+      });
+  </script>
+</body>
+</html>
+
