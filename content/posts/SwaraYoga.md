@@ -1,6 +1,6 @@
 +++
 date = '2025-12-26T14:11:00-08:00'
-draft = true
+draft = false
 author = '@theyogiclens'
 title = 'Swara Yoga'
 +++
