@@ -1,8 +1,8 @@
 +++
 date = '2026-03-10T22:45:00-08:00'
 draft = false
-author = 'Yoga Teacher Training Notes'
-title = ''
+author = 'THE YOGIC LENS'
+title = 'Yoga Teacher Training Notes'
 +++
 
 # Chapter 1: Introduction
