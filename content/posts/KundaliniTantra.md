@@ -5,7 +5,7 @@ author = 'THE YOGIC LENS'
 title = 'Kundalini Tantra'
 +++
 
-# 
+# Introduction
 
 I envision myself travelling the world to pass on the message of yoga. Initially, many people thought that yoga was a type of religion, witchcraft or mysticism. The materialistic world did not understand yoga for some time but as scientists dived deep into the mysteries of matter, they came to understand that matter wasn't the ultimate point in the evolution of nature. 
 
