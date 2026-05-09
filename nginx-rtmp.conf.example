@@ -1,0 +1,54 @@
+# Example nginx-rtmp configuration
+# Place this in your nginx config directory or use: nginx -c /path/to/this/file
+
+worker_processes 1;
+events {
+    worker_connections 1024;
+}
+
+rtmp {
+    server {
+        listen 1935;
+        chunk_size 4096;
+        allow publish 127.0.0.1;
+        deny publish all;
+        
+        application live {
+            live on;
+            record off;
+            
+            # Convert RTMP to HLS
+            hls on;
+            hls_path /Users/shiningankit/Workspace/Github/chachustudios.com/srv/tv/live;
+            hls_fragment 10s;
+            hls_playlist_length 60s;
+            hls_continuous on;
+            hls_cleanup on;
+            hls_nested on;
+        }
+    }
+}
+
+http {
+    server {
+        listen 8000;
+        
+        location /live {
+            add_header Cache-Control no-cache;
+            add_header Access-Control-Allow-Origin *;
+            types {
+                application/vnd.apple.mpegurl m3u8;
+                video/mp2t ts;
+            }
+            root /Users/shiningankit/Workspace/Github/chachustudios.com/srv/tv;
+        }
+        
+        location / {
+            root /Users/shiningankit/Workspace/Github/chachustudios.com/srv/tv;
+            index index.html;
+        }
+    }
+}
+
+
+

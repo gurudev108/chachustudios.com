@@ -20,9 +20,11 @@ class TTSPlayer {
   }
 
   init() {
+    console.log('TTS Player: Initializing...');
+    
     // Check if SpeechSynthesis is supported
     if (!('speechSynthesis' in window)) {
-      console.warn('Text-to-speech not supported in this browser');
+      console.warn('TTS Player: Text-to-speech not supported in this browser');
       return;
     }
 
@@ -30,15 +32,25 @@ class TTSPlayer {
     this.postContent = document.querySelector('.post-content') || 
                        document.querySelector('article .entry-content') ||
                        document.querySelector('article .content') ||
-                       document.querySelector('main article');
+                       document.querySelector('main article') ||
+                       document.querySelector('article');
 
     if (!this.postContent) {
-      console.warn('Post content not found');
-      return;
+      console.warn('TTS Player: Post content not found. Available elements:', {
+        postContent: document.querySelector('.post-content'),
+        article: document.querySelector('article'),
+        main: document.querySelector('main')
+      });
+      // Don't return - try to inject anyway
+    } else {
+      console.log('TTS Player: Found post content:', this.postContent);
     }
 
     // Inject TTS player into post header
-    this.injectTTSPlayer();
+    const injected = this.injectTTSPlayer();
+    if (!injected) {
+      console.error('TTS Player: Failed to inject button');
+    }
 
     // Get DOM elements
     this.playBtn = document.getElementById('tts-play-btn');
@@ -106,8 +118,13 @@ class TTSPlayer {
         title.parentElement.insertBefore(container, title.nextSibling);
         return;
       }
-      console.error('Could not find suitable location for TTS player');
-      return;
+      console.error('TTS Player: Could not find suitable location for TTS player');
+      console.log('TTS Player: Available elements:', {
+        postMeta: document.querySelector('.post-meta'),
+        title: document.querySelector('article h1, .post-title, h1.post-title'),
+        article: document.querySelector('article')
+      });
+      return false;
     }
 
     // Insert TTS player after post meta
@@ -123,6 +140,9 @@ class TTSPlayer {
     } else {
       postHeader.appendChild(container);
     }
+    
+    console.log('TTS Player: Button injected successfully');
+    return true;
   }
 
   getTTSPlayerHTML() {
@@ -316,12 +336,35 @@ class TTSPlayer {
   }
 }
 
-// Initialize TTS player when DOM is ready
+// Initialize TTS player - try multiple times to ensure it runs
+function initTTS() {
+  try {
+    const player = new TTSPlayer();
+    console.log('TTS Player initialized');
+    return player;
+  } catch (error) {
+    console.error('TTS Player initialization error:', error);
+    return null;
+  }
+}
+
+// Try immediate initialization
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    new TTSPlayer();
+    initTTS();
   });
 } else {
-  new TTSPlayer();
+  // DOM already loaded, but wait a bit for PaperMod to finish rendering
+  setTimeout(() => {
+    initTTS();
+  }, 100);
 }
+
+// Also try after a delay in case PaperMod loads content dynamically
+setTimeout(() => {
+  if (!document.getElementById('tts-player-container')) {
+    console.log('TTS button not found, retrying initialization...');
+    initTTS();
+  }
+}, 500);
 

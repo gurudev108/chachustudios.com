@@ -25,6 +25,8 @@ To tend to our inner happiness is perhaps the most important task of our daily l
 The science of Kundalini Yoga is to be studied, understood, tested, and refined through your experience. The art of Kundalini Yoga is to bring its essence alive in the context of your unique life. There is nobody quite like you. Nobody exists with exactly the same wiring. You have extraordinary gifts to nurture, obstacles to traverse, and beauty to share. It is why you are here.
 Regardless of whether you plan to become a teacher of Kundalini Yoga in the most literal sense, this is a path of self-blossoming. It is a commitment to discovering and embodying the greatest expression of who and what you are. It is a way of elegance and realness. It is a recognition that nourishing your own inner happiness is intimately intertwined with nourishing a genuine concern for others. When we exalt others, we exalt ourselves. When we discover the treasure of our own true nature, we discover it simultaneously as the treasure that dwells within all others. This is the spirit in which this sacred technology shall always be shared.
 
+---
+
 ## Important Terms
 
 Key Concepts -- Description
@@ -41,6 +43,7 @@ Naad -- Sound current.
 Sat Naam -- One's true nature.
 Dharma -- One’s path, duty, or righteous way of living; a living discipline or sacred art.
 
+---
 # How to Begin Your Practice
 The first lesson of a Kundalini Yoga teacher is on how to begin.
 When it comes to things of importance, the energy we set as we begin that thing ripples across the entirety of what is to follow. The beginning of an important activity is a point of power.

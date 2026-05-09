@@ -1,1 +1,9 @@
+/static/media/
 /public/
+/content/recordings/
+*.png
+*.mp4
+*.m4a
+*.mkv
+*.mov
+*.wav
