@@ -1,110 +1,601 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Live Stream</title>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ChaChu TV — Live Kriya</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7"></script>
   <style>
-    body { background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0; }
-    h1 { color:#fff; }
-    video { max-width:90%; max-height:80%; }
+    :root {
+      --bg: #0a0a0c;
+      --gold: #c9a962;
+      --gold-dim: rgba(201, 169, 98, 0.35);
+      --text: #f5f0e8;
+      --text-muted: rgba(245, 240, 232, 0.65);
+      --overlay-bg: rgba(10, 10, 12, 0.45);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      overflow: hidden;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: calc(12px + var(--safe-top)) 12px calc(12px + var(--safe-bottom));
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: clamp(1rem, 3vw, 1.25rem);
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .live-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #e85d4c;
+      box-shadow: 0 0 8px #e85d4c;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+
+    .stage {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+    }
+
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #000;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .instruction-banner {
+      position: absolute;
+      left: 50%;
+      bottom: 18%;
+      transform: translateX(-50%);
+      width: min(92%, 640px);
+      padding: 14px 20px;
+      text-align: center;
+      font-size: clamp(1rem, 2.8vw, 1.35rem);
+      line-height: 1.45;
+      background: var(--overlay-bg);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid var(--gold-dim);
+      border-radius: 10px;
+      opacity: 0;
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .instruction-banner.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .instruction-banner:not(.visible) {
+      transform: translateX(-50%) translateY(8px);
+    }
+
+    .timer-wrap {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 96px;
+      height: 96px;
+    }
+
+    .timer-ring {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+
+    .timer-ring circle {
+      fill: none;
+      stroke-width: 4;
+    }
+
+    .timer-ring .track {
+      stroke: rgba(255, 255, 255, 0.12);
+    }
+
+    .timer-ring .progress {
+      stroke: var(--gold);
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.25s linear;
+    }
+
+    .timer-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timer-value {
+      font-size: 1.35rem;
+      letter-spacing: 0.04em;
+    }
+
+    .timer-mode {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .breath-visualizer {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      width: 72px;
+      height: 72px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .breath-visualizer.active {
+      display: flex;
+    }
+
+    .breath-circle {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 2px solid var(--gold);
+      opacity: 0.85;
+      animation: breath-cycle var(--breath-duration, 8s) ease-in-out infinite;
+    }
+
+    @keyframes breath-cycle {
+      0%, 100% { transform: scale(0.55); opacity: 0.5; }
+      50% { transform: scale(1.15); opacity: 1; }
+    }
+
+    .breath-label {
+      position: absolute;
+      bottom: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.6rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .gaze-anchor {
+      position: absolute;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .gaze-anchor.active {
+      display: flex;
+    }
+
+    .gaze-anchor.third-eye {
+      top: 22%;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .gaze-anchor.nose {
+      top: 38%;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .gaze-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 16px var(--gold);
+      animation: gaze-pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes gaze-pulse {
+      0%, 100% { transform: scale(1); opacity: 0.7; }
+      50% { transform: scale(1.35); opacity: 1; }
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      flex-shrink: 0;
+    }
+
+    button {
+      pointer-events: auto;
+      font: inherit;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--gold-dim);
+      background: rgba(201, 169, 98, 0.08);
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    button:hover {
+      background: rgba(201, 169, 98, 0.18);
+    }
+
+    .debug-panel {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      color: var(--text-muted);
+      max-height: 120px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .debug-panel.open {
+      display: block;
+    }
+
+    .waiting {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 3;
+      text-align: center;
+      padding: 24px;
+    }
+
+    .waiting.hidden {
+      display: none;
+    }
+
+    .waiting p {
+      margin: 0;
+      color: var(--text-muted);
+      max-width: 360px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
-  <h1>Live Stream</h1>
-  <video id="video" controls autoplay muted></video>
+  <div class="app">
+    <header class="header">
+      <h1 id="session-title">ChaChu TV</h1>
+      <span class="live-badge" id="live-badge">Live</span>
+    </header>
+
+    <div class="stage" id="stage">
+      <video id="video" playsinline autoplay muted controls></video>
+
+      <div class="waiting" id="waiting">
+        <p id="waiting-msg">Connecting to live stream…</p>
+      </div>
+
+      <div class="overlay" id="overlay" aria-live="polite">
+        <div class="timer-wrap" id="timer-wrap" hidden>
+          <svg class="timer-ring" viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="track" cx="50" cy="50" r="42"></circle>
+            <circle class="progress" id="timer-progress" cx="50" cy="50" r="42"
+              stroke-dasharray="263.89" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="timer-label">
+            <span class="timer-value" id="timer-value">0:00</span>
+            <span class="timer-mode" id="timer-mode">hold</span>
+          </div>
+        </div>
+
+        <div class="instruction-banner" id="instruction"></div>
+
+        <div class="breath-visualizer" id="breath">
+          <div class="breath-circle" id="breath-circle"></div>
+          <span class="breath-label">breath</span>
+        </div>
+
+        <div class="gaze-anchor third-eye" id="gaze-third-eye">
+          <div class="gaze-dot"></div>
+        </div>
+        <div class="gaze-anchor nose" id="gaze-nose">
+          <div class="gaze-dot"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="toolbar">
+      <button type="button" id="btn-unmute">Unmute</button>
+      <button type="button" id="btn-sync">Sync to stream start</button>
+      <button type="button" id="btn-debug">Debug</button>
+    </div>
+
+    <div class="debug-panel" id="debug-panel"></div>
+  </div>
+
   <script>
-    const video = document.getElementById('video');
-    const streamURL = '/live/livestream.m3u8';
-    const statusDiv = document.createElement('div');
-    statusDiv.style.color = 'white';
-    statusDiv.style.marginTop = '20px';
-    statusDiv.style.fontFamily = 'monospace';
-    document.body.appendChild(statusDiv);
-    
-    function updateStatus(msg) {
-      statusDiv.textContent = new Date().toLocaleTimeString() + ': ' + msg;
-      console.log(msg);
-    }
-    
-    updateStatus('Initializing HLS player...');
-    
-    // Check if stream URL is accessible
-    fetch(streamURL)
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const DEBUG = params.has('debug');
+      const cuesUrl = params.get('cues') || '/kriya/default.json';
+      const streamURL = '/live/livestream.m3u8';
+      const CIRC = 2 * Math.PI * 42;
+
+      const video = document.getElementById('video');
+      const waiting = document.getElementById('waiting');
+      const waitingMsg = document.getElementById('waiting-msg');
+      const debugPanel = document.getElementById('debug-panel');
+      const instructionEl = document.getElementById('instruction');
+      const timerWrap = document.getElementById('timer-wrap');
+      const timerValue = document.getElementById('timer-value');
+      const timerMode = document.getElementById('timer-mode');
+      const timerProgress = document.getElementById('timer-progress');
+      const breath = document.getElementById('breath');
+      const breathCircle = document.getElementById('breath-circle');
+      const gazeThirdEye = document.getElementById('gaze-third-eye');
+      const gazeNose = document.getElementById('gaze-nose');
+      const sessionTitle = document.getElementById('session-title');
+
+      let cueSheet = null;
+      let syncOffset = 0;
+      let lastCueIndex = -1;
+
+      function log(msg) {
+        console.log(msg);
+        if (!DEBUG) return;
+        const line = document.createElement('div');
+        line.textContent = new Date().toLocaleTimeString() + ' — ' + msg;
+        debugPanel.appendChild(line);
+        debugPanel.scrollTop = debugPanel.scrollHeight;
+      }
+
+      function formatTime(seconds) {
+        const s = Math.max(0, Math.floor(seconds));
+        const m = Math.floor(s / 60);
+        const r = s % 60;
+        return m + ':' + String(r).padStart(2, '0');
+      }
+
+      function setWaiting(msg, hidden) {
+        waitingMsg.textContent = msg;
+        waiting.classList.toggle('hidden', hidden);
+      }
+
+      function activeCueIndex(t) {
+        if (!cueSheet?.cues?.length) return -1;
+        for (let i = cueSheet.cues.length - 1; i >= 0; i--) {
+          if (t >= cueSheet.cues[i].at) return i;
         }
-        return response.text();
-      })
-      .then(m3u8Content => {
-        updateStatus('✓ M3U8 file accessible');
-        updateStatus('M3U8 content preview: ' + m3u8Content.substring(0, 200));
-        
-        if(Hls.isSupported()) {
-          updateStatus('Using HLS.js player...');
+        return -1;
+      }
+
+      function applyCue(cue) {
+        if (!cue) {
+          instructionEl.classList.remove('visible');
+          timerWrap.hidden = true;
+          breath.classList.remove('active');
+          gazeThirdEye.classList.remove('active');
+          gazeNose.classList.remove('active');
+          return;
+        }
+
+        instructionEl.textContent = cue.instruction;
+        instructionEl.classList.add('visible');
+
+        if (cue.timer) {
+          timerWrap.hidden = false;
+          timerMode.textContent = cue.timer.mode === 'countup' ? 'elapsed' : 'remaining';
+        } else {
+          timerWrap.hidden = true;
+        }
+
+        breath.classList.toggle('active', !!cue.breath);
+        gazeThirdEye.classList.remove('active');
+        gazeNose.classList.remove('active');
+        if (cue.gaze === 'third-eye') gazeThirdEye.classList.add('active');
+        if (cue.gaze === 'nose') gazeNose.classList.add('active');
+      }
+
+      function updateOverlay() {
+        if (!cueSheet) return;
+        const t = video.currentTime + syncOffset;
+        const idx = activeCueIndex(t);
+        if (idx !== lastCueIndex) {
+          lastCueIndex = idx;
+          applyCue(idx >= 0 ? cueSheet.cues[idx] : null);
+        }
+        const cue = idx >= 0 ? cueSheet.cues[idx] : null;
+        if (!cue?.timer) return;
+
+        const elapsed = t - cue.at;
+        const total = cue.timer.seconds;
+        let display;
+        let fraction;
+
+        if (cue.timer.mode === 'countup') {
+          display = Math.min(elapsed, total);
+          fraction = Math.min(elapsed / total, 1);
+        } else {
+          display = Math.max(total - elapsed, 0);
+          fraction = Math.max(1 - elapsed / total, 0);
+        }
+
+        timerValue.textContent = formatTime(display);
+        timerProgress.style.strokeDashoffset = String(CIRC * (1 - fraction));
+      }
+
+      function setupBreathTiming() {
+        const inhale = cueSheet?.breath?.inhaleSeconds ?? 4;
+        const exhale = cueSheet?.breath?.exhaleSeconds ?? 4;
+        breathCircle.style.setProperty('--breath-duration', (inhale + exhale) + 's');
+        breathCircle.style.animationDuration = (inhale + exhale) + 's';
+      }
+
+      async function loadCues() {
+        try {
+          const res = await fetch(cuesUrl);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          cueSheet = await res.json();
+          sessionTitle.textContent = cueSheet.title || 'ChaChu TV';
+          setupBreathTiming();
+          log('Loaded cues: ' + cuesUrl);
+        } catch (e) {
+          log('Cues unavailable (' + cuesUrl + '): ' + e.message);
+          cueSheet = { title: 'ChaChu TV', cues: [] };
+        }
+      }
+
+      function initHls() {
+        if (Hls.isSupported()) {
           const hls = new Hls({
-            debug: true,
+            debug: DEBUG,
             enableWorker: true,
             lowLatencyMode: true
           });
-          
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-            updateStatus('✓ Media attached');
-          });
-          
-          hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-            updateStatus('✓ Manifest parsed, ' + data.levels.length + ' quality levels');
-            video.play().catch(e => {
-              updateStatus('⚠ Play error: ' + e.message);
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            setWaiting('', true);
+            video.play().catch(() => {
+              setWaiting('Tap Unmute to start playback.', false);
             });
+            log('Stream ready');
           });
-          
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-              updateStatus('✗ Fatal error: ' + data.type + ' - ' + data.details);
-              switch(data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  updateStatus('Network error - trying to recover...');
-                  hls.startLoad();
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  updateStatus('Media error - trying to recover...');
-                  hls.recoverMediaError();
-                  break;
-                default:
-                  updateStatus('Unrecoverable error');
-                  hls.destroy();
-                  break;
-              }
+
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (!data.fatal) return;
+            log('Fatal HLS: ' + data.type + ' — ' + data.details);
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              setWaiting('Stream reconnecting…', false);
+              hls.startLoad();
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              hls.recoverMediaError();
             } else {
-              updateStatus('⚠ Non-fatal error: ' + data.type + ' - ' + data.details);
+              setWaiting('Stream unavailable. Retrying on the hour.', false);
             }
           });
-          
+
           hls.loadSource(streamURL);
           hls.attachMedia(video);
-        } else if(video.canPlayType('application/vnd.apple.mpegurl')) {
-          updateStatus('Using native HLS support...');
+          return;
+        }
+
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
           video.src = streamURL;
           video.addEventListener('loadedmetadata', () => {
-            updateStatus('✓ Metadata loaded');
+            setWaiting('', true);
+            video.play().catch(() => setWaiting('Tap Unmute to start playback.', false));
           });
-          video.addEventListener('error', (e) => {
-            updateStatus('✗ Video error: ' + (e.message || 'Unknown error'));
-          });
-        } else {
-          updateStatus('✗ Browser does not support HLS');
+          return;
         }
-      })
-      .catch(error => {
-        updateStatus('✗ Cannot access M3U8: ' + error.message);
-        updateStatus('Make sure:');
-        updateStatus('1. RTMP server is running');
-        updateStatus('2. Web server is serving /live/ directory');
-        updateStatus('3. FFmpeg is streaming to rtmp://localhost/live/livestream');
+
+        setWaiting('This browser cannot play HLS.', false);
+      }
+
+      document.getElementById('btn-unmute').addEventListener('click', () => {
+        video.muted = false;
+        video.play().catch(() => {});
+        setWaiting('', true);
       });
+
+      document.getElementById('btn-sync').addEventListener('click', () => {
+        syncOffset = -video.currentTime;
+        lastCueIndex = -1;
+        log('Synced cues to current stream position');
+        updateOverlay();
+      });
+
+      document.getElementById('btn-debug').addEventListener('click', () => {
+        debugPanel.classList.toggle('open');
+      });
+
+      video.addEventListener('timeupdate', updateOverlay);
+
+      loadCues().then(() => {
+        fetch(streamURL)
+          .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            initHls();
+          })
+          .catch(e => {
+            setWaiting('Waiting for live stream (starts on the hour).', false);
+            log('No stream yet: ' + e.message);
+            initHls();
+          });
+      });
+
+      if (DEBUG) debugPanel.classList.add('open');
+    })();
   </script>
 </body>
 </html>
-
