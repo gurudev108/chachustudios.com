@@ -68,8 +68,19 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
+      background: #6b6b6b;
+      box-shadow: none;
+    }
+
+    .live-badge.live::before {
       background: #e85d4c;
       box-shadow: 0 0 8px #e85d4c;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    .live-badge.soon::before {
+      background: var(--gold);
+      box-shadow: 0 0 8px var(--gold);
       animation: pulse-dot 2s ease-in-out infinite;
     }
 
@@ -291,18 +302,30 @@
       margin-top: 8px;
       padding: 10px 12px;
       border-radius: 8px;
-      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(201, 169, 98, 0.2);
+      background: rgba(20, 20, 24, 0.95);
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.72rem;
       line-height: 1.5;
       color: var(--text-muted);
-      max-height: 120px;
+      max-height: 140px;
       overflow-y: auto;
       display: none;
     }
 
     .debug-panel.open {
       display: block;
+    }
+
+    .debug-panel .debug-hint {
+      color: rgba(245, 240, 232, 0.45);
+      font-style: italic;
+      margin-bottom: 6px;
+    }
+
+    button.active {
+      background: rgba(201, 169, 98, 0.22);
+      border-color: var(--gold);
     }
 
     .waiting {
@@ -312,8 +335,8 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 12px;
-      background: rgba(0, 0, 0, 0.75);
+      gap: 16px;
+      background: rgba(0, 0, 0, 0.82);
       z-index: 3;
       text-align: center;
       padding: 24px;
@@ -323,11 +346,48 @@
       display: none;
     }
 
-    .waiting p {
+    .waiting-status {
+      margin: 0;
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    .waiting-subject {
+      margin: 0;
+      font-size: clamp(1.1rem, 3.5vw, 1.5rem);
+      line-height: 1.4;
+      max-width: 420px;
+      color: var(--text);
+    }
+
+    .waiting-countdown {
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(2rem, 8vw, 3rem);
+      letter-spacing: 0.06em;
+      color: var(--text);
+    }
+
+    .waiting-countdown-label {
+      margin: 0;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .waiting-detail {
       margin: 0;
       color: var(--text-muted);
       max-width: 360px;
       line-height: 1.5;
+      font-size: 0.9rem;
+    }
+
+    .waiting-ok {
+      margin: 0;
+      font-size: 0.8rem;
+      color: rgba(201, 169, 98, 0.7);
     }
   </style>
 </head>
@@ -335,14 +395,19 @@
   <div class="app">
     <header class="header">
       <h1 id="session-title">ChaChu TV</h1>
-      <span class="live-badge" id="live-badge">Live</span>
+      <span class="live-badge" id="live-badge">Checking…</span>
     </header>
 
     <div class="stage" id="stage">
       <video id="video" playsinline autoplay muted controls></video>
 
       <div class="waiting" id="waiting">
-        <p id="waiting-msg">Connecting to live stream…</p>
+        <p class="waiting-status" id="waiting-status">Connecting</p>
+        <p class="waiting-subject" id="waiting-subject"></p>
+        <p class="waiting-countdown" id="waiting-countdown" hidden></p>
+        <p class="waiting-countdown-label" id="waiting-countdown-label" hidden></p>
+        <p class="waiting-detail" id="waiting-detail">Checking stream…</p>
+        <p class="waiting-ok" id="waiting-ok">Site is online</p>
       </div>
 
       <div class="overlay" id="overlay" aria-live="polite">
@@ -378,24 +443,33 @@
     <div class="toolbar">
       <button type="button" id="btn-unmute">Unmute</button>
       <button type="button" id="btn-sync">Sync to stream start</button>
-      <button type="button" id="btn-debug">Debug</button>
+      <button type="button" id="btn-debug">Technical log</button>
     </div>
 
-    <div class="debug-panel" id="debug-panel"></div>
+    <div class="debug-panel" id="debug-panel" aria-label="Technical log"></div>
   </div>
 
   <script>
     (function () {
       const params = new URLSearchParams(location.search);
-      const DEBUG = params.has('debug');
+      const DEBUG_URL = params.has('debug');
       const cuesUrl = params.get('cues') || '/kriya/default.json';
+      const scheduleUrl = '/schedule.json';
       const streamURL = '/live/livestream.m3u8';
       const CIRC = 2 * Math.PI * 42;
+      const POLL_MS = 15000;
 
       const video = document.getElementById('video');
       const waiting = document.getElementById('waiting');
-      const waitingMsg = document.getElementById('waiting-msg');
+      const waitingStatus = document.getElementById('waiting-status');
+      const waitingSubject = document.getElementById('waiting-subject');
+      const waitingCountdown = document.getElementById('waiting-countdown');
+      const waitingCountdownLabel = document.getElementById('waiting-countdown-label');
+      const waitingDetail = document.getElementById('waiting-detail');
+      const waitingOk = document.getElementById('waiting-ok');
       const debugPanel = document.getElementById('debug-panel');
+      const btnDebug = document.getElementById('btn-debug');
+      const liveBadge = document.getElementById('live-badge');
       const instructionEl = document.getElementById('instruction');
       const timerWrap = document.getElementById('timer-wrap');
       const timerValue = document.getElementById('timer-value');
@@ -408,16 +482,50 @@
       const sessionTitle = document.getElementById('session-title');
 
       let cueSheet = null;
+      let schedule = null;
       let syncOffset = 0;
       let lastCueIndex = -1;
+      let streamLive = false;
+      let countdownTimer = null;
+      let debugOpen = DEBUG_URL;
+      let hls = null;
+      let playerStarted = false;
+      let connectStartedAt = 0;
+      const CONNECT_TIMEOUT_MS = 15000;
 
       function log(msg) {
-        console.log(msg);
-        if (!DEBUG) return;
+        console.log('[ChaChu TV]', msg);
+        if (!debugOpen) return;
+        if (debugPanel.querySelector('.debug-hint')) {
+          debugPanel.innerHTML = '';
+        }
         const line = document.createElement('div');
         line.textContent = new Date().toLocaleTimeString() + ' — ' + msg;
         debugPanel.appendChild(line);
         debugPanel.scrollTop = debugPanel.scrollHeight;
+      }
+
+      function setDebugOpen(open) {
+        debugOpen = open;
+        debugPanel.classList.toggle('open', open);
+        btnDebug.classList.toggle('active', open);
+        btnDebug.textContent = open ? 'Hide log' : 'Technical log';
+        if (open && !debugPanel.children.length) {
+          debugPanel.innerHTML = '<div class="debug-hint">Connection and sync events appear here.</div>';
+          log('Log opened');
+          log('Stream URL: ' + streamURL);
+        }
+      }
+
+      function formatClock(seconds) {
+        const s = Math.max(0, Math.floor(seconds));
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const r = s % 60;
+        if (h > 0) {
+          return h + ':' + String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+        }
+        return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
       }
 
       function formatTime(seconds) {
@@ -427,9 +535,162 @@
         return m + ':' + String(r).padStart(2, '0');
       }
 
-      function setWaiting(msg, hidden) {
-        waitingMsg.textContent = msg;
-        waiting.classList.toggle('hidden', hidden);
+      function nextHourlySlot(now) {
+        const d = new Date(now);
+        d.setMinutes(0, 0, 0);
+        if (now >= d.getTime()) {
+          d.setHours(d.getHours() + 1);
+        }
+        return d;
+      }
+
+      function slotProgress(now) {
+        if (!schedule?.durationSeconds) return null;
+        const hourStart = new Date(now);
+        hourStart.setMinutes(0, 0, 0);
+        const elapsed = (now - hourStart.getTime()) / 1000;
+        if (elapsed >= 0 && elapsed < schedule.durationSeconds) {
+          return { hourStart, elapsed, remaining: schedule.durationSeconds - elapsed };
+        }
+        return null;
+      }
+
+      function isInBroadcastWindow(now) {
+        return slotProgress(now) !== null;
+      }
+
+      function setLiveBadge(state, label) {
+        liveBadge.textContent = label;
+        liveBadge.classList.remove('live', 'soon');
+        if (state === 'live') liveBadge.classList.add('live');
+        if (state === 'soon') liveBadge.classList.add('soon');
+      }
+
+      function showIdleOverlay(mode) {
+        const subject = schedule?.subject || cueSheet?.title || 'Guided kriya practice';
+        waitingSubject.textContent = subject;
+
+        if (mode === 'live') {
+          waiting.classList.add('hidden');
+          setLiveBadge('live', 'Live');
+          return;
+        }
+
+        waiting.classList.remove('hidden');
+        const now = Date.now();
+        const inSlot = isInBroadcastWindow(now);
+
+        if (mode === 'connecting') {
+          waitingStatus.textContent = 'Connecting';
+          waitingCountdown.hidden = true;
+          waitingCountdownLabel.hidden = true;
+          waitingDetail.textContent = 'Joining the live broadcast…';
+          setLiveBadge('soon', 'Connecting');
+          return;
+        }
+
+        // Inside the hourly broadcast window — never show "Next session"
+        if (inSlot) {
+          const slot = slotProgress(now);
+          waitingStatus.textContent = 'On air now';
+          waitingCountdown.hidden = false;
+          waitingCountdownLabel.hidden = false;
+          waitingCountdown.textContent = formatClock(slot.remaining);
+          waitingCountdownLabel.textContent = 'remaining in this session';
+          waitingDetail.textContent = playerStarted
+            ? 'Buffering live stream… tap Unmute if you hear no audio.'
+            : 'Stream should be live — connecting…';
+          setLiveBadge('soon', 'On air');
+          return;
+        }
+
+        const next = nextHourlySlot(now);
+        const secs = Math.max(0, Math.floor((next.getTime() - now) / 1000));
+        waitingStatus.textContent = 'Next session';
+        waitingCountdown.hidden = false;
+        waitingCountdownLabel.hidden = false;
+        waitingCountdown.textContent = formatClock(secs);
+        waitingCountdownLabel.textContent = 'until ' + next.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        waitingDetail.textContent = schedule?.note || 'Broadcasts begin at the top of each hour.';
+        setLiveBadge('soon', 'Offline');
+      }
+
+      function tickCountdown() {
+        if (streamLive) return;
+        showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
+      }
+
+      function startCountdownTicker() {
+        if (countdownTimer) clearInterval(countdownTimer);
+        countdownTimer = setInterval(tickCountdown, 1000);
+        tickCountdown();
+      }
+
+      async function fetchPlaylistText(url) {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      }
+
+      /** SRS returns a master playlist first; segments live on ?hls_ctx=… URL */
+      async function resolveHlsPlaylistUrl() {
+        const text = await fetchPlaylistText(streamURL);
+
+        if (text.includes('#EXT-X-STREAM-INF')) {
+          const variantLine = text.split('\n').find(function (line) {
+            return line.trim().startsWith('/live/') || line.trim().includes('hls_ctx=');
+          });
+          if (variantLine) {
+            const resolved = new URL(variantLine.trim(), location.origin).href;
+            log('SRS master playlist → ' + resolved);
+            const media = await fetchPlaylistText(resolved);
+            if (media.includes('#EXTINF') && media.includes('.ts')) {
+              return resolved;
+            }
+            throw new Error('SRS variant has no segments yet');
+          }
+        }
+
+        if (text.includes('#EXTINF') && text.includes('.ts')) {
+          return streamURL;
+        }
+
+        throw new Error('No playable HLS segments in playlist');
+      }
+
+      async function checkStreamLive() {
+        try {
+          const text = await fetchPlaylistText(streamURL);
+          if (text.includes('#EXT-X-ENDLIST')) {
+            log('Stream check: playlist ended');
+            return false;
+          }
+          if (text.includes('#EXT-X-STREAM-INF')) {
+            log('Stream check: SRS master playlist (stream available)');
+            return true;
+          }
+          if (text.includes('#EXTINF') && text.includes('.ts')) {
+            log('Stream check: media playlist with segments');
+            return true;
+          }
+          log('Stream check: no segments in playlist');
+          return false;
+        } catch (e) {
+          log('Stream check failed: ' + e.message);
+          return false;
+        }
+      }
+
+      function resetPlayer() {
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+        video.removeAttribute('src');
+        video.load();
+        playerStarted = false;
+        streamLive = false;
+        connectStartedAt = 0;
       }
 
       function activeCueIndex(t) {
@@ -502,70 +763,152 @@
         breathCircle.style.animationDuration = (inhale + exhale) + 's';
       }
 
-      async function loadCues() {
+      async function loadSchedule() {
         try {
-          const res = await fetch(cuesUrl);
+          const res = await fetch(scheduleUrl, { cache: 'no-store' });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          schedule = await res.json();
+          if (schedule.title) sessionTitle.textContent = schedule.title;
+          log('Loaded schedule');
+        } catch (e) {
+          schedule = { subject: 'Guided kriya practice', durationSeconds: 2462 };
+          log('Schedule unavailable, using defaults');
+        }
+      }
+
+      async function loadCues() {
+        const url = schedule?.cues || cuesUrl;
+        try {
+          const res = await fetch(url, { cache: 'no-store' });
           if (!res.ok) throw new Error('HTTP ' + res.status);
           cueSheet = await res.json();
-          sessionTitle.textContent = cueSheet.title || 'ChaChu TV';
+          if (!schedule?.title && cueSheet.title) {
+            sessionTitle.textContent = cueSheet.title;
+          }
           setupBreathTiming();
-          log('Loaded cues: ' + cuesUrl);
+          log('Loaded cues: ' + url);
         } catch (e) {
-          log('Cues unavailable (' + cuesUrl + '): ' + e.message);
+          log('Cues unavailable (' + url + '): ' + e.message);
           cueSheet = { title: 'ChaChu TV', cues: [] };
         }
       }
 
-      function initHls() {
-        if (Hls.isSupported()) {
-          const hls = new Hls({
-            debug: DEBUG,
+      function onStreamReady() {
+        streamLive = true;
+        showIdleOverlay('live');
+        video.play().catch(() => {
+          streamLive = false;
+          showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
+          waitingDetail.textContent = 'Tap Unmute to start playback.';
+        });
+        log('Stream playing');
+      }
+
+      async function initHls() {
+        if (playerStarted) return;
+        playerStarted = true;
+        connectStartedAt = Date.now();
+        showIdleOverlay('connecting');
+        log('Initializing HLS player');
+
+        let sourceUrl = streamURL;
+        try {
+          sourceUrl = await resolveHlsPlaylistUrl();
+        } catch (e) {
+          log('Playlist resolve: ' + e.message);
+          playerStarted = false;
+          connectStartedAt = 0;
+          showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
+          return;
+        }
+
+        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+          hls = new Hls({
+            debug: DEBUG_URL,
             enableWorker: true,
-            lowLatencyMode: true
+            lowLatencyMode: true,
+            manifestLoadingMaxRetry: 6,
+            levelLoadingMaxRetry: 6
           });
 
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            setWaiting('', true);
-            video.play().catch(() => {
-              setWaiting('Tap Unmute to start playback.', false);
-            });
-            log('Stream ready');
+          hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            onStreamReady();
           });
 
-          hls.on(Hls.Events.ERROR, (_, data) => {
+          hls.on(Hls.Events.ERROR, function (_, data) {
+            log('HLS: ' + data.type + ' — ' + data.details + (data.fatal ? ' (fatal)' : ''));
             if (!data.fatal) return;
-            log('Fatal HLS: ' + data.type + ' — ' + data.details);
+            streamLive = false;
             if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-              setWaiting('Stream reconnecting…', false);
+              showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'connecting');
               hls.startLoad();
             } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
               hls.recoverMediaError();
             } else {
-              setWaiting('Stream unavailable. Retrying on the hour.', false);
+              resetPlayer();
+              showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
             }
           });
 
-          hls.loadSource(streamURL);
+          hls.loadSource(sourceUrl);
           hls.attachMedia(video);
           return;
         }
 
         if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = streamURL;
-          video.addEventListener('loadedmetadata', () => {
-            setWaiting('', true);
-            video.play().catch(() => setWaiting('Tap Unmute to start playback.', false));
-          });
+          log('Using native HLS → ' + sourceUrl);
+          video.src = sourceUrl;
+          video.addEventListener('loadedmetadata', onStreamReady, { once: true });
+          video.addEventListener('error', function () {
+            log('Native HLS playback error');
+            resetPlayer();
+            showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
+          }, { once: true });
           return;
         }
 
-        setWaiting('This browser cannot play HLS.', false);
+        playerStarted = false;
+        connectStartedAt = 0;
+        waitingDetail.textContent = 'This browser cannot play HLS.';
+        log('HLS not supported');
+      }
+
+      async function ensurePlayer() {
+        if (streamLive) return;
+
+        if (playerStarted && connectStartedAt && Date.now() - connectStartedAt > CONNECT_TIMEOUT_MS) {
+          log('Connection timeout — retrying player');
+          resetPlayer();
+        }
+
+        if (playerStarted) return;
+
+        const inSlot = isInBroadcastWindow();
+        const live = inSlot ? true : await checkStreamLive();
+        if (live) {
+          log(inSlot ? 'Broadcast window — starting player' : 'Stream detected — starting player');
+          await initHls();
+        } else if (!inSlot) {
+          showIdleOverlay('offline');
+        } else {
+          showIdleOverlay('waiting');
+        }
+      }
+
+      async function pollStream() {
+        if (streamLive) return;
+        await ensurePlayer();
+        if (!streamLive && !playerStarted) {
+          showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
+        }
       }
 
       document.getElementById('btn-unmute').addEventListener('click', () => {
         video.muted = false;
-        video.play().catch(() => {});
-        setWaiting('', true);
+        video.play().then(() => {
+          streamLive = true;
+          showIdleOverlay('live');
+        }).catch(() => {});
       });
 
       document.getElementById('btn-sync').addEventListener('click', () => {
@@ -575,26 +918,21 @@
         updateOverlay();
       });
 
-      document.getElementById('btn-debug').addEventListener('click', () => {
-        debugPanel.classList.toggle('open');
+      btnDebug.addEventListener('click', () => {
+        setDebugOpen(!debugOpen);
       });
 
       video.addEventListener('timeupdate', updateOverlay);
 
-      loadCues().then(() => {
-        fetch(streamURL)
-          .then(r => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            initHls();
-          })
-          .catch(e => {
-            setWaiting('Waiting for live stream (starts on the hour).', false);
-            log('No stream yet: ' + e.message);
-            initHls();
-          });
-      });
-
-      if (DEBUG) debugPanel.classList.add('open');
+      (async function boot() {
+        log('Page loaded');
+        await loadSchedule();
+        await loadCues();
+        startCountdownTicker();
+        await ensurePlayer();
+        setInterval(pollStream, POLL_MS);
+        if (DEBUG_URL) setDebugOpen(true);
+      })();
     })();
   </script>
 </body>
