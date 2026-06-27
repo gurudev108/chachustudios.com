@@ -6,6 +6,10 @@
 #   ./cs-live --run
 #   ./cs-live --test
 #   ./cs-live --list
+#   ./cs-live --audio-only          # Rode mic only, no camera (radio-style)
+#   ./cs-live --test --audio-only   # dry-run the audio-only ffmpeg command
+#   ./cs-live /path/to/audio.mp4    # BRIO video + looped audio from file
+#   ./cs-live --test /path/to/audio.mp4
 
 set -euo pipefail
 

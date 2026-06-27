@@ -1,6 +1,15 @@
+
+srv/tv/studios
+srv/tv/
+/srv/tv/studios/
 /static/media/
 /public/
 /content/recordings/
+/srv/tv/live/
+.DS_Store
+*.DS_Store
+*.ts
+*.tmp
 *.png
 *.mp4
 *.m4a

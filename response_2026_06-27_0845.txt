@@ -1,0 +1,109 @@
+This is a brilliant vision. Merging ancient yoga kriyas with real-time interactive tech (timers, breath visualizers, gaze-tracking) is an incredible use case for interactive media streaming.
+
+Let's break down your setup, demystify that mysterious path, and lay down an action plan alongside a master prompt you can feed directly to Claude or Cursor.
+
+---
+
+## 1. What was `/usr/local/srs/objs/nginx/html`?
+
+In your Docker command, you map:
+`-v /Users/shiningankit/Workspace/Github/chachustudios.com/srv/tv:/usr/local/srs/objs/nginx/html`
+
+* **Inside the Docker container:** SRS (Simple Realtime Server) comes with an embedded Nginx server to distribute HTTP-based streaming formats like **HLS (`.m3u8`)** or **HTTP-FLV**. The default directory where it serves these web files is `/usr/local/srs/objs/nginx/html`.
+* **What it does for you:** Your local folder `srv/tv` is masquerading as SRS's web server root. When FFmpeg pushes an RTMP stream to SRS, SRS can convert it on-the-fly to HLS and save the playlist/segments directly into that folder. This is exactly how `tv.chachustudios.com` accesses and plays the live video files via the Cloudflared tunnel!
+
+---
+
+## 2. Streamlining the Vision: Browser vs. App
+
+> **Recommendation:** **Start with the Browser (Web App).** Building a custom iOS/macOS app adds a massive layer of complexity with Apple Developer accounts, TestFlight, and AVKit rendering. Since you already have `tv.chachustudios.com` routed via Cloudflare, turning that web page into a rich, interactive **React or Next.js Web App** is much faster. It will run flawlessly on both Safari (iOS) and Chrome (macOS).
+
+To achieve the overlays (timers, breathing visualizers):
+
+1. **Do not burn text into the video using FFmpeg.** It's heavy on your M2 CPU and not interactive.
+2. **Layer text/animations on top of the video.** Play the stream in a standard `<video>` tag, and use absolute HTML/CSS positioning to overlay reactive React components (a ticking SVG timer, a breathing pulse animation).
+
+---
+
+## 3. The Master Claude / Cursor Prompt
+
+Copy and paste the prompt below into Claude or Cursor to start building the frontend dashboard application.
+
+```markdown
+Act as an expert Full-Stack Engineer specializing in real-time video streaming, React, and Tailwind CSS. 
+
+### Context
+I am a yoga teacher running a live video streaming setup on my macOS machine (Apple M2). 
+- I use **SRS Server** inside Docker to handle streams.
+- I use **FFmpeg** to loop and push combined video/audio tracks to `rtmp://localhost/live/livestream`.
+- I use a **Cloudflared tunnel** to expose this stream publicly at `tv.chachustudios.com`.
+- My video folder is mapped locally to `/Users/shiningankit/Workspace/Github/chachustudios.com/srv/tv`.
+
+### Objective
+Help me build/modify the frontend code for `tv.chachustudios.com` using React (or Next.js) and Tailwind CSS. The app needs to stream my yoga video while overlaying dynamic elements that assist students practicing Kriyas.
+
+### Requirements
+
+1. **Video Player Layer:**
+   - Implement an HLS video player (using `video.js` or `hls.js`) that safely hooks into the live HLS stream endpoint served from my SRS/Cloudflare setup.
+   - It must auto-play (muted if necessary to bypass browser rules) and be completely responsive.
+
+2. **Interactive Kriya Timer Overlay:**
+   - Create a beautiful, transparent overlay over the top of the video container.
+   - It should include a highly visual countdown/count-up timer (e.g., for a 3-minute breath retention or specific Kriya hold).
+   - Add a banner area for "Current Instruction" text (e.g., "Inhale deeply, apply Root Lock (Mula Bandha)").
+
+3. **Future-Proofing Visualizations (Placeholder Components):**
+   - Build a placeholder React component called `BreathVisualizer`. For now, make it a smooth, pulsating CSS/SVG circle that mimics an inhale (expanding for 4s) and exhale (contracting for 4s) to guide the student's breath rhythm.
+   - Build a placeholder component called `GazeAnchor` which renders a small, subtle focus point on the screen (e.g., representing "Gaze at the Third Eye or Tip of the Nose").
+
+4. **Architecture:**
+   - Keep the design Zen, minimal, and premium (dark mode optimized, smooth transitions).
+   - Ensure the overlays are completely decoupled from the video stream itself, layered purely via CSS absolute positioning (`z-index`).
+
+Please provide the structure, the component files, and instructions on how to drop this into my existing `chachustudios.com` project repository.
+
+```
+
+---
+
+## 4. Next Steps for your "Terminal Shadow" AI Agent
+
+Once you have the UI running, your ultimate goal of having an AI agent manage your logs can be achieved like this:
+
+* You can have a lightweight Node.js or Python backend tail your FFmpeg/SRS logs.
+* If FFmpeg prints an error or log line containing a timestamp (like `time=00:41:02.50`), your backend can parse it and emit an event via WebSockets to your React web app.
+* Your web app receives the event and updates the UI timer or instruction slide perfectly in sync with the broadcast!
+
+Act as an expert Full-Stack Engineer specializing in real-time video streaming, React, and Tailwind CSS. 
+
+### Context
+I am a yoga teacher running a live video streaming setup on my macOS machine (Apple M2). 
+- I use **SRS Server** inside Docker to handle streams.
+- I use **FFmpeg** to loop and push combined video/audio tracks to `rtmp://localhost/live/livestream`.
+- I use a **Cloudflared tunnel** to expose this stream publicly at `tv.chachustudios.com`.
+- My video folder is mapped locally to `/Users/shiningankit/Workspace/Github/chachustudios.com/srv/tv`.
+
+### Objective
+Help me build/modify the frontend code for `tv.chachustudios.com` using React (or Next.js) and Tailwind CSS. The app needs to stream my yoga video while overlaying dynamic elements that assist students practicing Kriyas.
+
+### Requirements
+
+1. **Video Player Layer:**
+   - Implement an HLS video player (using `video.js` or `hls.js`) that safely hooks into the live HLS stream endpoint served from my SRS/Cloudflare setup.
+   - It must auto-play (muted if necessary to bypass browser rules) and be completely responsive.
+
+2. **Interactive Kriya Timer Overlay:**
+   - Create a beautiful, transparent overlay over the top of the video container.
+   - It should include a highly visual countdown/count-up timer (e.g., for a 3-minute breath retention or specific Kriya hold).
+   - Add a banner area for "Current Instruction" text (e.g., "Inhale deeply, apply Root Lock (Mula Bandha)").
+
+3. **Future-Proofing Visualizations (Placeholder Components):**
+   - Build a placeholder React component called `BreathVisualizer`. For now, make it a smooth, pulsating CSS/SVG circle that mimics an inhale (expanding for 4s) and exhale (contracting for 4s) to guide the student's breath rhythm.
+   - Build a placeholder component called `GazeAnchor` which renders a small, subtle focus point on the screen (e.g., representing "Gaze at the Third Eye or Tip of the Nose").
+
+4. **Architecture:**
+   - Keep the design Zen, minimal, and premium (dark mode optimized, smooth transitions).
+   - Ensure the overlays are completely decoupled from the video stream itself, layered purely via CSS absolute positioning (`z-index`).
+
+Please provide the structure, the component files, and instructions on how to drop this into my existing `chachustudios.com` project repository.

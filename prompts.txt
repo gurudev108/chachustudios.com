@@ -1,0 +1,37 @@
+iPerfect use case — this is now set up for you.
+
+I added:
+
+- `cs-hourly-live.sh` → runs at top of every hour, streams one recording, then waits for next hour.
+- `cs-hourly-live.conf` → easy config file to swap recordings later.
+
+### How it behaves
+
+- If it is `8:23`, running `./cs-hourly-live.sh` waits until `9:00`.
+- At `9:00`, it starts your configured stream (`~40 min`).
+- It stops when media ends (`-shortest`), then idles.
+- At `10:00`, it starts again automatically.
+
+### Run commands
+
+- Start scheduler (live mode):
+  - `./cs-hourly-live.sh`
+- Test one slot without executing ffmpeg:
+  - `./cs-hourly-live.sh --test --once`
+- Start immediately once (no wait for next hour):
+  - `./cs-hourly-live.sh --now --once`
+
+### Change recording later
+
+Edit `cs-hourly-live.conf`:
+
+- `DEFAULT_VIDEO="..."`
+- `DEFAULT_AUDIO="..."`
+
+You can also do per-hour overrides later with:
+- `SLOT_09_VIDEO="..."`
+- `SLOT_09_AUDIO="..."`
+
+(Already documented inside the config file.)
+
+If you want, next I can add a `cs-hourly-stop.sh` helper (one command to stop any running hourly stream cleanly).
