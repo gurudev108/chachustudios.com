@@ -384,10 +384,49 @@
       font-size: 0.9rem;
     }
 
+    .waiting.in-slot {
+      background: rgba(0, 0, 0, 0.35);
+      pointer-events: none;
+    }
+
+    .waiting.in-slot .waiting-detail,
+    .waiting.in-slot .waiting-ok {
+      pointer-events: auto;
+    }
+
     .waiting-ok {
       margin: 0;
       font-size: 0.8rem;
       color: rgba(201, 169, 98, 0.7);
+    }
+
+    .intermission-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--gold-dim);
+      background: rgba(201, 169, 98, 0.08);
+      flex-shrink: 0;
+    }
+
+    .intermission-bar[hidden] {
+      display: none !important;
+    }
+
+    .intermission-title {
+      font-size: 0.85rem;
+      letter-spacing: 0.06em;
+      color: var(--gold);
+    }
+
+    .intermission-countdown {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.8rem;
+      color: var(--text-muted);
     }
   </style>
 </head>
@@ -440,9 +479,14 @@
 
     </div>
 
+    <div class="intermission-bar" id="intermission-bar" hidden aria-live="polite">
+      <span class="intermission-title" id="intermission-title">Intermission</span>
+      <span class="intermission-countdown" id="intermission-countdown"></span>
+    </div>
+
     <div class="toolbar">
       <button type="button" id="btn-unmute">Unmute</button>
-      <button type="button" id="btn-sync">Sync to stream start</button>
+      <button type="button" id="btn-sync">Sync to video</button>
       <button type="button" id="btn-debug">Technical log</button>
     </div>
 
@@ -480,18 +524,26 @@
       const gazeThirdEye = document.getElementById('gaze-third-eye');
       const gazeNose = document.getElementById('gaze-nose');
       const sessionTitle = document.getElementById('session-title');
+      const intermissionBar = document.getElementById('intermission-bar');
+      const intermissionTitle = document.getElementById('intermission-title');
+      const intermissionCountdown = document.getElementById('intermission-countdown');
 
       let cueSheet = null;
       let schedule = null;
       let syncOffset = 0;
+      let syncMode = params.get('sync') === 'video' ? 'video' : 'wall';
       let lastCueIndex = -1;
+      let lastLoadedHour = null;
       let streamLive = false;
+      let breakMode = false;
       let countdownTimer = null;
       let debugOpen = DEBUG_URL;
       let hls = null;
       let playerStarted = false;
       let connectStartedAt = 0;
       const CONNECT_TIMEOUT_MS = 15000;
+      let lastStreamLogKey = '';
+      let scheduleLoggedOnce = false;
 
       function log(msg) {
         console.log('[ChaChu TV]', msg);
@@ -535,24 +587,210 @@
         return m + ':' + String(r).padStart(2, '0');
       }
 
-      function nextHourlySlot(now) {
-        const d = new Date(now);
-        d.setMinutes(0, 0, 0);
-        if (now >= d.getTime()) {
-          d.setHours(d.getHours() + 1);
-        }
-        return d;
+      function getScheduleTimezone() {
+        return schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
       }
 
-      function slotProgress(now) {
+      function getZonedParts(date, timeZone) {
+        const parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: timeZone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).formatToParts(date);
+        const pick = function (type) {
+          const part = parts.find(function (p) { return p.type === type; });
+          return part ? parseInt(part.value, 10) : 0;
+        };
+        return {
+          year: pick('year'),
+          month: pick('month'),
+          day: pick('day'),
+          hour: pick('hour') % 24,
+          minute: pick('minute'),
+          second: pick('second')
+        };
+      }
+
+      function getElapsedSecondsInHour(nowMs, timeZone) {
+        const z = getZonedParts(new Date(nowMs), timeZone);
+        return z.minute * 60 + z.second;
+      }
+
+      function getCurrentHourKey(nowMs) {
+        const z = getZonedParts(new Date(nowMs || Date.now()), getScheduleTimezone());
+        return String(z.hour).padStart(2, '0');
+      }
+
+      function slotProgress(nowMs) {
         if (!schedule?.durationSeconds) return null;
-        const hourStart = new Date(now);
-        hourStart.setMinutes(0, 0, 0);
-        const elapsed = (now - hourStart.getTime()) / 1000;
+        const tz = getScheduleTimezone();
+        const elapsed = getElapsedSecondsInHour(nowMs || Date.now(), tz);
         if (elapsed >= 0 && elapsed < schedule.durationSeconds) {
-          return { hourStart, elapsed, remaining: schedule.durationSeconds - elapsed };
+          return {
+            elapsed: elapsed,
+            remaining: schedule.durationSeconds - elapsed
+          };
         }
         return null;
+      }
+
+      function nextHourlySlot(nowMs) {
+        const now = nowMs || Date.now();
+        const tz = getScheduleTimezone();
+        const z = getZonedParts(new Date(now), tz);
+        const secsUntil = (59 - z.minute) * 60 + (60 - z.second);
+        return new Date(now + secsUntil * 1000);
+      }
+
+      function getWallClockStreamSeconds() {
+        if (!schedule?.durationSeconds) return null;
+
+        const hourKey = getCurrentHourKey();
+        const slot = slotProgress();
+
+        if (schedule.slotStartEpoch && schedule.activeHour === hourKey) {
+          const elapsed = Date.now() / 1000 - schedule.slotStartEpoch;
+          if (elapsed >= 0 && elapsed < schedule.durationSeconds) {
+            return elapsed;
+          }
+        }
+
+        return slot ? slot.elapsed : null;
+      }
+
+      function getCueTimeSeconds() {
+        if (syncMode === 'video' && streamLive && !isNaN(video.currentTime)) {
+          return video.currentTime + syncOffset;
+        }
+        const wall = getWallClockStreamSeconds();
+        if (wall !== null) return wall;
+        if (streamLive && !isNaN(video.currentTime)) {
+          return video.currentTime + syncOffset;
+        }
+        return null;
+      }
+
+      function resolveCuesUrl() {
+        if (params.get('cues')) return params.get('cues');
+        const hourKey = getCurrentHourKey();
+        const slotEntry = schedule?.hourSlots?.[hourKey];
+        if (slotEntry?.cues) return slotEntry.cues;
+        return schedule?.cues || cuesUrl;
+      }
+
+      function resolveSubject() {
+        const hourKey = getCurrentHourKey();
+        const slotEntry = schedule?.hourSlots?.[hourKey];
+        return slotEntry?.subject || schedule?.subject || cueSheet?.title || 'Guided kriya practice';
+      }
+
+      function breakProgress(nowMs) {
+        if (!schedule?.durationSeconds) return null;
+        const elapsed = getElapsedSecondsInHour(nowMs || Date.now(), getScheduleTimezone());
+        if (elapsed >= schedule.durationSeconds && elapsed < 3600) {
+          return {
+            elapsed: elapsed - schedule.durationSeconds,
+            remaining: 3600 - elapsed
+          };
+        }
+        return null;
+      }
+
+      function isInBreakWindow(now) {
+        return breakProgress(now) !== null;
+      }
+
+      function getBreakVideoUrl() {
+        return schedule?.break?.video || '/tube/ShriHanumanChalisa.mp4';
+      }
+
+      function getBreakTitle() {
+        return schedule?.break?.title || 'Intermission';
+      }
+
+      function getBreakSubject() {
+        return schedule?.break?.subject || 'Intermission · next kriya on the hour';
+      }
+
+      function updateIntermissionBar() {
+        const brk = breakProgress();
+        if (!breakMode || !brk) {
+          intermissionBar.hidden = true;
+          return;
+        }
+        intermissionBar.hidden = false;
+        intermissionTitle.textContent = getBreakTitle();
+        const next = nextHourlySlot();
+        intermissionCountdown.textContent = 'Next session in ' + formatClock(brk.remaining)
+          + ' · ' + next.toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZone: getScheduleTimezone()
+          });
+      }
+
+      function clearKriyaOverlay() {
+        lastCueIndex = -1;
+        instructionEl.classList.remove('visible');
+        timerWrap.hidden = true;
+        breath.classList.remove('active');
+        gazeThirdEye.classList.remove('active');
+        gazeNose.classList.remove('active');
+      }
+
+      function stopBreakPlayer() {
+        if (!breakMode) return;
+        breakMode = false;
+        intermissionBar.hidden = true;
+        resetPlayer();
+      }
+
+      async function ensureBreakPlayer() {
+        if (!isInBreakWindow() || isInBroadcastWindow()) {
+          stopBreakPlayer();
+          return;
+        }
+        if (breakMode && video.src) return;
+
+        resetPlayer();
+        clearKriyaOverlay();
+        breakMode = true;
+
+        const url = getBreakVideoUrl();
+        try {
+          const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+        } catch (e) {
+          log('Break video unavailable (' + url + '): ' + e.message);
+          breakMode = false;
+          showIdleOverlay('offline');
+          return;
+        }
+
+        video.loop = schedule?.break?.loop !== false;
+        video.muted = true;
+        video.src = url;
+        log('Intermission: ' + getBreakTitle());
+
+        video.addEventListener('loadedmetadata', function onBreakReady() {
+          video.removeEventListener('loadedmetadata', onBreakReady);
+          waiting.classList.add('hidden');
+          setLiveBadge('soon', 'Intermission');
+          sessionTitle.textContent = schedule?.title || 'ChaChu TV';
+          updateIntermissionBar();
+          video.play().catch(function () {
+            waiting.classList.remove('hidden');
+            waiting.classList.remove('in-slot');
+            waitingStatus.textContent = 'Intermission';
+            waitingSubject.textContent = getBreakTitle();
+            waitingDetail.textContent = 'Tap Unmute to play.';
+          });
+        }, { once: true });
       }
 
       function isInBroadcastWindow(now) {
@@ -567,18 +805,28 @@
       }
 
       function showIdleOverlay(mode) {
-        const subject = schedule?.subject || cueSheet?.title || 'Guided kriya practice';
+        const subject = resolveSubject();
         waitingSubject.textContent = subject;
 
         if (mode === 'live') {
           waiting.classList.add('hidden');
+          waiting.classList.remove('in-slot');
+          intermissionBar.hidden = true;
           setLiveBadge('live', 'Live');
+          return;
+        }
+
+        if (mode === 'break') {
+          waiting.classList.add('hidden');
+          setLiveBadge('soon', 'Intermission');
+          updateIntermissionBar();
           return;
         }
 
         waiting.classList.remove('hidden');
         const now = Date.now();
         const inSlot = isInBroadcastWindow(now);
+        waiting.classList.toggle('in-slot', !!inSlot);
 
         if (mode === 'connecting') {
           waitingStatus.textContent = 'Connecting';
@@ -601,6 +849,20 @@
             ? 'Buffering live stream… tap Unmute if you hear no audio.'
             : 'Stream should be live — connecting…';
           setLiveBadge('soon', 'On air');
+          intermissionBar.hidden = true;
+          return;
+        }
+
+        if (isInBreakWindow(now) && !breakMode) {
+          const brk = breakProgress(now);
+          waitingStatus.textContent = 'Intermission';
+          waitingSubject.textContent = getBreakTitle();
+          waitingCountdown.hidden = false;
+          waitingCountdownLabel.hidden = false;
+          waitingCountdown.textContent = formatClock(brk.remaining);
+          waitingCountdownLabel.textContent = 'until next kriya session';
+          waitingDetail.textContent = getBreakSubject();
+          setLiveBadge('soon', 'Intermission');
           return;
         }
 
@@ -610,14 +872,38 @@
         waitingCountdown.hidden = false;
         waitingCountdownLabel.hidden = false;
         waitingCountdown.textContent = formatClock(secs);
-        waitingCountdownLabel.textContent = 'until ' + next.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        waitingCountdownLabel.textContent = 'until ' + next.toLocaleTimeString([], {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: getScheduleTimezone()
+        });
         waitingDetail.textContent = schedule?.note || 'Broadcasts begin at the top of each hour.';
         setLiveBadge('soon', 'Offline');
+        intermissionBar.hidden = true;
       }
 
       function tickCountdown() {
-        if (streamLive) return;
-        showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
+        if (isInBroadcastWindow()) {
+          if (breakMode) stopBreakPlayer();
+          maybeReloadCuesForHour();
+          updateOverlay();
+          if (!streamLive) showIdleOverlay('waiting');
+          return;
+        }
+        if (isInBreakWindow()) {
+          ensureBreakPlayer();
+          updateIntermissionBar();
+          return;
+        }
+        if (breakMode) stopBreakPlayer();
+        clearKriyaOverlay();
+        updateOverlay();
+        if (!streamLive) showIdleOverlay('offline');
+      }
+
+      async function refreshSchedule() {
+        await loadSchedule();
+        await maybeReloadCuesForHour();
       }
 
       function startCountdownTicker() {
@@ -628,7 +914,11 @@
 
       async function fetchPlaylistText(url) {
         const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) {
+          const err = new Error('HTTP ' + res.status);
+          err.status = res.status;
+          throw err;
+        }
         return res.text();
       }
 
@@ -658,25 +948,40 @@
         throw new Error('No playable HLS segments in playlist');
       }
 
-      async function checkStreamLive() {
+      function logStreamOnce(key, msg) {
+        if (lastStreamLogKey === key) return;
+        lastStreamLogKey = key;
+        log(msg);
+      }
+
+      async function checkStreamLive(options) {
+        const quiet = options && options.quiet;
+        const inSlot = isInBroadcastWindow();
         try {
           const text = await fetchPlaylistText(streamURL);
           if (text.includes('#EXT-X-ENDLIST')) {
-            log('Stream check: playlist ended');
+            logStreamOnce('ended', 'Stream check: playlist ended');
             return false;
           }
           if (text.includes('#EXT-X-STREAM-INF')) {
-            log('Stream check: SRS master playlist (stream available)');
+            logStreamOnce('live', 'Stream check: live (SRS master playlist)');
             return true;
           }
           if (text.includes('#EXTINF') && text.includes('.ts')) {
-            log('Stream check: media playlist with segments');
+            logStreamOnce('live-media', 'Stream check: live (media playlist)');
             return true;
           }
-          log('Stream check: no segments in playlist');
+          logStreamOnce('empty', inSlot ? 'Stream check: waiting for segments' : 'Stream check: idle');
           return false;
         } catch (e) {
-          log('Stream check failed: ' + e.message);
+          if (e.status === 404) {
+            if (quiet || !inSlot) {
+              return false;
+            }
+            logStreamOnce('404-slot', 'Stream check: not broadcasting yet (404)');
+            return false;
+          }
+          logStreamOnce('err-' + e.message, 'Stream check failed: ' + e.message);
           return false;
         }
       }
@@ -687,9 +992,11 @@
           hls = null;
         }
         video.removeAttribute('src');
+        video.loop = false;
         video.load();
         playerStarted = false;
         streamLive = false;
+        breakMode = false;
         connectStartedAt = 0;
       }
 
@@ -729,8 +1036,13 @@
       }
 
       function updateOverlay() {
-        if (!cueSheet) return;
-        const t = video.currentTime + syncOffset;
+        if (!cueSheet || breakMode || isInBreakWindow()) {
+          if (lastCueIndex !== -1) clearKriyaOverlay();
+          return;
+        }
+        const t = getCueTimeSeconds();
+        if (t === null) return;
+
         const idx = activeCueIndex(t);
         if (idx !== lastCueIndex) {
           lastCueIndex = idx;
@@ -756,6 +1068,16 @@
         timerProgress.style.strokeDashoffset = String(CIRC * (1 - fraction));
       }
 
+      async function maybeReloadCuesForHour() {
+        const hourKey = getCurrentHourKey();
+        if (hourKey === lastLoadedHour) return;
+        lastLoadedHour = hourKey;
+        await loadCues();
+        lastCueIndex = -1;
+        updateOverlay();
+        log('Hour changed → cues for slot ' + hourKey);
+      }
+
       function setupBreathTiming() {
         const inhale = cueSheet?.breath?.inhaleSeconds ?? 4;
         const exhale = cueSheet?.breath?.exhaleSeconds ?? 4;
@@ -767,17 +1089,32 @@
         try {
           const res = await fetch(scheduleUrl, { cache: 'no-store' });
           if (!res.ok) throw new Error('HTTP ' + res.status);
+          const prevEpoch = schedule?.slotStartEpoch;
           schedule = await res.json();
           if (schedule.title) sessionTitle.textContent = schedule.title;
-          log('Loaded schedule');
+          if (!scheduleLoggedOnce || prevEpoch !== schedule.slotStartEpoch) {
+            log('Loaded schedule (tz: ' + getScheduleTimezone() + ')');
+            scheduleLoggedOnce = true;
+            if (prevEpoch !== schedule.slotStartEpoch && schedule.slotStartEpoch) {
+              lastStreamLogKey = '';
+            }
+          }
         } catch (e) {
-          schedule = { subject: 'Guided kriya practice', durationSeconds: 2462 };
-          log('Schedule unavailable, using defaults');
+          schedule = {
+            subject: 'Guided kriya practice',
+            durationSeconds: 2462,
+            timezone: 'America/Los_Angeles',
+            slot: 'hourly'
+          };
+          if (!scheduleLoggedOnce) {
+            log('Schedule unavailable, using defaults');
+            scheduleLoggedOnce = true;
+          }
         }
       }
 
       async function loadCues() {
-        const url = schedule?.cues || cuesUrl;
+        const url = resolveCuesUrl();
         try {
           const res = await fetch(url, { cache: 'no-store' });
           if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -794,14 +1131,20 @@
       }
 
       function onStreamReady() {
+        if (breakMode) return;
         streamLive = true;
+        intermissionBar.hidden = true;
         showIdleOverlay('live');
-        video.play().catch(() => {
+        if (syncMode === 'wall') {
+          log('Wall-clock sync: ' + formatTime(getWallClockStreamSeconds() || 0));
+        }
+        updateOverlay();
+        video.play().catch(function () {
           streamLive = false;
           showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
           waitingDetail.textContent = 'Tap Unmute to start playback.';
         });
-        log('Stream playing');
+        log('Stream playing (sync: ' + syncMode + ')');
       }
 
       async function initHls() {
@@ -874,7 +1217,12 @@
       }
 
       async function ensurePlayer() {
-        if (streamLive) return;
+        if (streamLive || breakMode) return;
+
+        if (isInBreakWindow()) {
+          await ensureBreakPlayer();
+          return;
+        }
 
         if (playerStarted && connectStartedAt && Date.now() - connectStartedAt > CONNECT_TIMEOUT_MS) {
           log('Connection timeout — retrying player');
@@ -884,7 +1232,14 @@
         if (playerStarted) return;
 
         const inSlot = isInBroadcastWindow();
-        const live = inSlot ? true : await checkStreamLive();
+        const hourlyMode = (schedule?.slot || 'hourly') === 'hourly';
+
+        if (!inSlot && hourlyMode) {
+          showIdleOverlay('offline');
+          return;
+        }
+
+        const live = inSlot ? true : await checkStreamLive({ quiet: true });
         if (live) {
           log(inSlot ? 'Broadcast window — starting player' : 'Stream detected — starting player');
           await initHls();
@@ -896,25 +1251,38 @@
       }
 
       async function pollStream() {
-        if (streamLive) return;
+        if (streamLive || breakMode) return;
+        if (isInBreakWindow()) {
+          await ensureBreakPlayer();
+          return;
+        }
+        const inSlot = isInBroadcastWindow();
+        const hourlyMode = (schedule?.slot || 'hourly') === 'hourly';
+        if (!inSlot && hourlyMode) return;
         await ensurePlayer();
         if (!streamLive && !playerStarted) {
-          showIdleOverlay(isInBroadcastWindow() ? 'waiting' : 'offline');
+          showIdleOverlay(inSlot ? 'waiting' : 'offline');
         }
       }
 
-      document.getElementById('btn-unmute').addEventListener('click', () => {
+      document.getElementById('btn-unmute').addEventListener('click', function () {
         video.muted = false;
-        video.play().then(() => {
+        video.play().then(function () {
+          if (breakMode) {
+            waiting.classList.add('hidden');
+            updateIntermissionBar();
+            return;
+          }
           streamLive = true;
           showIdleOverlay('live');
-        }).catch(() => {});
+        }).catch(function () {});
       });
 
-      document.getElementById('btn-sync').addEventListener('click', () => {
+      document.getElementById('btn-sync').addEventListener('click', function () {
+        syncMode = 'video';
         syncOffset = -video.currentTime;
         lastCueIndex = -1;
-        log('Synced cues to current stream position');
+        log('Manual sync: following video at ' + formatTime(video.currentTime));
         updateOverlay();
       });
 
@@ -922,16 +1290,23 @@
         setDebugOpen(!debugOpen);
       });
 
-      video.addEventListener('timeupdate', updateOverlay);
+      video.addEventListener('timeupdate', function () {
+        if (syncMode === 'video') updateOverlay();
+      });
 
       (async function boot() {
-        log('Page loaded');
+        log('Page loaded (sync mode: ' + syncMode + ')');
         await loadSchedule();
+        lastLoadedHour = getCurrentHourKey();
         await loadCues();
         startCountdownTicker();
+        setInterval(updateOverlay, 500);
+        setInterval(refreshSchedule, 30000);
         await ensurePlayer();
         setInterval(pollStream, POLL_MS);
         if (DEBUG_URL) setDebugOpen(true);
+        if (isInBroadcastWindow()) updateOverlay();
+        else if (isInBreakWindow()) ensureBreakPlayer();
       })();
     })();
   </script>

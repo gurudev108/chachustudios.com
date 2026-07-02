@@ -102,11 +102,13 @@ slot_value_or_default() {
 }
 
 run_slot() {
-  local hour video_rel audio_rel video_file audio_file
+  local hour video_rel audio_rel video_file audio_file cues_rel subject_rel
   hour="$(date +%H)"
 
   video_rel="$(slot_value_or_default "$hour" "VIDEO" "$DEFAULT_VIDEO")"
   audio_rel="$(slot_value_or_default "$hour" "AUDIO" "$DEFAULT_AUDIO")"
+  cues_rel="$(slot_value_or_default "$hour" "CUES" "${DEFAULT_CUES:-/kriya/default.json}")"
+  subject_rel="$(slot_value_or_default "$hour" "SUBJECT" "${DEFAULT_SUBJECT:-ChaChu TV live session}")"
 
   video_file="$(resolve_path "$video_rel")"
   audio_file="$(resolve_path "$audio_rel")"
@@ -119,6 +121,15 @@ run_slot() {
   if [ ! -f "$audio_file" ]; then
     echo "Error: Audio file not found: $audio_file"
     return 1
+  fi
+
+  if [ "$RUN_STREAM" = true ]; then
+    "$SCRIPT_DIR/cs-update-tv-schedule.sh" \
+      --start \
+      --hour "$hour" \
+      --video "$video_file" \
+      --cues "$cues_rel" \
+      --subject "$subject_rel"
   fi
 
   CMD=(
@@ -137,6 +148,7 @@ run_slot() {
   echo "=== Hourly Slot $(date '+%Y-%m-%d %H:00') ==="
   echo "Video: $video_rel"
   echo "Audio: $audio_rel"
+  echo "Cues: $cues_rel"
   echo "Target: $RTMP_URL"
   echo "Command:"
   printf ' %q' "${CMD[@]}"
